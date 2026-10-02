@@ -1,84 +1,61 @@
-# Weco demo: JSON parser throughput
+# Weco practice: make a JSON parser faster
 
-A traditional-software optimization demo. No LLMs, no ML — a hand-rolled
-recursive-descent JSON parser that is correct but slow, and a benchmark
-that Weco optimizes against.
+`optimize.py` is a JSON parser written by hand in pure Python. It is
+correct but slow (about 12 MB/s). In this exercise you let Weco rewrite
+it, step by step, to make it faster without breaking it.
 
-## Baseline
+One earlier 10-step run reached about 25 MB/s (2x faster). Your result
+will differ: that is the point of the exercise.
 
-| | |
-|---|---|
-| Throughput | **12.33 MB/s** (± 0.06, 0.5% over 5 runs) |
-| Parse time | ~150 ms for a 1.96 MB corpus |
-| Reference | stdlib `json` does the same corpus at ~183 MB/s |
+## What you need
 
-The stdlib number is the practical ceiling (it is C). A pure-Python
-parser will not reach it — that gap is the headroom Weco explores.
+- Python 3.10 or newer
+- The Weco CLI, logged in with your own account:
 
-## Layout
+  ```bash
+  pipx install weco
+  weco login
+  ```
 
-```
-parser.py                  the baseline parser (reference copy)
-make_corpus.py             deterministic corpus generator (seeded)
-corpus/
-  bench.json               1.96 MB — the benchmark input
-  correctness.json         246 KB  — different seed, correctness only
-  edge_cases.json          3.4 KB  — hand-written nasty cases
-.weco/json-parser-throughput/
-  optimize.py              the file Weco rewrites
-  baseline.py              frozen original, for diffing
-  evaluate.py              benchmark + correctness gate
-  evaluate.sh              wrapper (uses the local .venv)
-  .venv/                   isolated env
-```
+  No `pipx`? Install it with `brew install pipx`. A plain
+  `pip install weco` also works, but only inside a virtual environment:
+  Homebrew's Python refuses system-wide installs.
 
-## The contract
-
-`optimize.py` must export `parse(text: str) -> object`, returning what
-`json.loads` returns and raising on invalid input. Weco may restructure
-everything behind that signature.
-
-## How the gate works
-
-This is the part that makes the demo honest. Throughput is only reported
-if the candidate passes three independent checks — otherwise it scores
-`throughput: 0.0` and cannot win.
-
-1. **External oracle.** Output is compared to `json.loads` on all three
-   corpora, not to the solution's own output. Self-referential checks
-   cannot detect regressions.
-2. **Strict types.** `deep_equal` rejects `1` vs `1.0` vs `True`, which
-   plain `==` in Python treats as equal. Stops a candidate from returning
-   floats everywhere.
-3. **No delegation.** An AST scan rejects `import json` and friends
-   (`from json import loads`, `importlib.import_module("json")`,
-   `__import__`, `ast.literal_eval`, and the third-party parsers). Without
-   this, the optimizer wins in one step by calling the C parser — a 14x
-   "improvement" that demonstrates nothing.
-4. **Malformed input.** 13 invalid documents must still raise. Stops a
-   candidate from getting fast by skipping validation.
-
-All four were verified by writing adversarial solutions and confirming
-each scores 0.0.
-
-## Setup
-
-`evaluate.sh` runs the evaluator with a local `.venv`, which is not
-checked in. Create it once after cloning:
+## Step 1: Set up
 
 ```bash
-cd .weco/json-parser-throughput
+git clone https://github.com/tameverfit/weco-json-demo.git
+cd weco-json-demo/.weco/json-parser-throughput
 python3 -m venv .venv
-bash evaluate.sh        # should print: throughput: ~12
 ```
 
-No packages to install — the evaluator only uses the standard library.
+There is nothing to install into the venv. All commands below are run
+from this folder.
 
-## Run it
+## Step 2: Measure the baseline
 
 ```bash
-cd .weco/json-parser-throughput   # or pass absolute paths
+bash evaluate.sh
+```
 
+You should see something like:
+
+```
+correctness: PASS (1,965 KB corpus)
+best time: 154.2 ms
+throughput: 12.4402
+```
+
+`throughput` is the number Weco will try to raise.
+
+## Step 3: Run Weco
+
+Pick one of the two ways. A 10-step run takes about 15 minutes and uses
+Weco credits.
+
+### Option A: run the command yourself
+
+```bash
 weco run \
   --source optimize.py \
   --eval-command "bash evaluate.sh" \
@@ -88,27 +65,105 @@ weco run \
   --output plain
 ```
 
-## Reset between demos
+### Option B: ask Claude Code or Cursor to do it
+
+Install the Weco skill into your agent once:
 
 ```bash
-cp .weco/json-parser-throughput/baseline.py \
-   .weco/json-parser-throughput/optimize.py
+weco setup claude-code     # or: weco setup cursor
 ```
 
-## Regenerate the corpus
+Open this repo in the agent and paste:
 
-Seeded, so output is identical across machines:
+```text
+Use Weco to make the JSON parser in this repo faster.
+
+Work in .weco/json-parser-throughput/:
+- File to optimize: optimize.py. Do not edit any other file.
+- Eval command: bash evaluate.sh
+- Metric: throughput (MB/s, printed as "throughput: <number>"), maximize.
+- Steps: 10
+
+Before starting, run `bash evaluate.sh` once and tell me the baseline
+throughput. If it fails because .venv is missing, create it with
+`python3 -m venv .venv` in that directory and try again.
+
+Rules:
+- optimize.py must keep exporting parse(text) with the same behaviour as
+  json.loads. The evaluator scores 0.0 for any candidate that returns a
+  different result, accepts malformed JSON, or imports a JSON library.
+  Do not edit evaluate.py to get around this.
+- Do not hand-optimize optimize.py yourself. Let Weco do the search.
+
+When the run finishes, do not apply the result to optimize.py yet.
+Report back with:
+1. Baseline throughput and best throughput, and which step was best.
+2. A table of every step and its throughput, marking any step that
+   scored 0.0 and why it failed.
+3. A short summary of what the best version changed compared to
+   baseline.py.
+```
+
+## Step 4: Look at the result
+
+Weco saves every step under `.runs/<run-id>/`:
+
+```
+.runs/<run-id>/steps/0/files/optimize.py    step 0 (the baseline)
+.runs/<run-id>/steps/1/files/optimize.py    step 1
+...
+.runs/<run-id>/best/files/optimize.py       the fastest version that passed
+```
+
+See what changed:
 
 ```bash
-python3 make_corpus.py
+diff baseline.py .runs/*/best/files/optimize.py
 ```
 
-## What to expect
+Try the best version yourself:
 
-Likely directions: hoisting attribute lookups out of the scan loop,
-replacing char-by-char string building with slice-and-join, `str.find`
-to jump to the next delimiter, dispatch tables over if-chains, and
-flattening the scanner class into closures. The interesting demo
-question is which combination wins — and that is genuinely hard to
-call in advance, which is the argument for running the search rather
-than hand-optimizing.
+```bash
+cp .runs/*/best/files/optimize.py optimize.py
+bash evaluate.sh
+```
+
+## Step 5: Reset before the next run
+
+```bash
+cp baseline.py optimize.py
+```
+
+## How scoring works
+
+A candidate only gets a throughput score if it passes all four checks.
+If it fails any of them it scores `throughput: 0.0`.
+
+1. **It parses by itself.** `import json`, `orjson`, `eval`, and similar
+   shortcuts are rejected.
+2. **Same output as `json.loads`** on all three files in `corpus/`.
+3. **Same types.** `1`, `1.0` and `True` are treated as different, even
+   though Python's `==` says they are equal.
+4. **Bad JSON is still rejected.** 13 invalid documents must raise an
+   error.
+
+Expect one or two steps in a run to score 0.0. That is the gate doing
+its job, not a problem with your setup.
+
+For reference, Python's built-in `json` (written in C) parses the same
+file at about 183 MB/s. A pure-Python parser will not reach that.
+
+## Files
+
+```
+parser.py                    the original parser, for reading
+corpus/
+  bench.json                 1.96 MB  speed is measured on this file
+  correctness.json           246 KB   correctness check only
+  edge_cases.json            3.4 KB   hand-written hard cases
+.weco/json-parser-throughput/
+  optimize.py                the file Weco rewrites
+  baseline.py                untouched copy, for diff and reset
+  evaluate.py                the benchmark and the four checks
+  evaluate.sh                runs evaluate.py with the local .venv
+```

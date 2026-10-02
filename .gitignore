@@ -9,3 +9,9 @@ consumer.lock
 
 # macOS
 .DS_Store
+
+# Kept local only: corpus generators and the held-out test set
+make_corpus.py
+make_test_corpus.py
+corpus_test/
+evaluate_test.py
