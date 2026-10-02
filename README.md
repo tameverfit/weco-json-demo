@@ -115,16 +115,22 @@ Weco saves every step under `.runs/<run-id>/`:
 .runs/<run-id>/best/files/optimize.py       the fastest version that passed
 ```
 
+Pick your latest run (you will have several folders after a few runs):
+
+```bash
+RUN=$(ls -td .runs/*/ | head -1)
+```
+
 See what changed:
 
 ```bash
-diff baseline.py .runs/*/best/files/optimize.py
+diff baseline.py "${RUN}best/files/optimize.py"
 ```
 
 Try the best version yourself:
 
 ```bash
-cp .runs/*/best/files/optimize.py optimize.py
+cp "${RUN}best/files/optimize.py" optimize.py
 bash evaluate.sh
 ```
 
@@ -133,6 +139,36 @@ bash evaluate.sh
 ```bash
 cp baseline.py optimize.py
 ```
+
+## Getting a better result
+
+Three things you can change in the `weco run` command before you start:
+
+| What | Flag | What it does |
+|---|---|---|
+| Instructions | `-i "..."` or `-i file.md` | Extra guidance for Weco, in your own words: what to try, where to focus, what to avoid. Empty by default, so Weco picks its own direction. |
+| Model | `-M <model>` | The AI model that proposes each new version. The default is `gemini-3-flash-preview`. A stronger model may find bigger changes but uses more credits. See the [supported models](https://docs.weco.ai/cli/supported-models). |
+| Steps | `-n <number>` | How many versions Weco tries. More steps means a longer run and more credits. |
+
+Example using all three:
+
+```bash
+weco run \
+  --source optimize.py \
+  --eval-command "bash evaluate.sh" \
+  --metric throughput \
+  --goal maximize \
+  --output plain \
+  -n 30 \
+  -M <model> \
+  -i "Replace recursion with an explicit stack. Focus on the string-parsing path."
+```
+
+Ideas for `-i`:
+
+- A direction to try: "Use a single regex to split the input into tokens."
+- Where to focus: "Strings with escape sequences are the slowest part."
+- A constraint: "Standard library only."
 
 ## How scoring works
 
