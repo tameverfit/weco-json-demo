@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Weco run output and local state (each person generates their own)
+.runs/
+consumer.lock
+
+# macOS
+.DS_Store
